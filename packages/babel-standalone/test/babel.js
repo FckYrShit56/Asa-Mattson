@@ -1,4 +1,4 @@
-import { createRequire } from "module";
+import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 
 // Basic smoke tests for @babel/standalone
@@ -211,7 +211,7 @@ describe("@babel/standalone", () => {
         presets: ["env"],
       }).code;
 
-      expect(output).toMatch("regeneratorRuntime().mark(fn)");
+      expect(output).toMatch("regenerator().m(fn)");
     });
   });
 

@@ -81,6 +81,9 @@ export function _printAttributes(
     !process.env.BABEL_8_BREAKING &&
     attributes &&
     !importAttributesKeyword &&
+    node.extra &&
+    (node.extra.deprecatedAssertSyntax ||
+      node.extra.deprecatedWithLegacySyntax) &&
     // In the production build only show the warning once.
     // We want to show it per-usage locally for tests.
     (!process.env.IS_PUBLISH || !warningShown)
@@ -105,7 +108,8 @@ Please specify the "importAttributesKeyword" generator option, whose value can b
   if (
     !process.env.BABEL_8_BREAKING &&
     !useAssertKeyword &&
-    importAttributesKeyword !== "with"
+    (importAttributesKeyword === "with-legacy" ||
+      (!importAttributesKeyword && node.extra?.deprecatedWithLegacySyntax))
   ) {
     // with-legacy
     this.printList(attributes || assertions);
@@ -337,11 +341,15 @@ export function ImportExpression(this: Printer, node: t.ImportExpression) {
     this.word(node.phase);
   }
   this.token("(");
+  const shouldPrintTrailingComma = this.shouldPrintTrailingComma(")");
   this.print(node.source);
   if (node.options != null) {
     this.token(",");
     this.space();
     this.print(node.options);
   }
-  this.token(")");
+  if (shouldPrintTrailingComma) {
+    this.token(",");
+  }
+  this.rightParens(node);
 }

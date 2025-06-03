@@ -1,6 +1,6 @@
 import buildDebug from "debug";
-import nodeFs from "fs";
-import path from "path";
+import nodeFs from "node:fs";
+import path from "node:path";
 import json5 from "json5";
 import gensync from "gensync";
 import type { Handler } from "gensync";
@@ -17,7 +17,7 @@ import ConfigError from "../../errors/config-error.ts";
 
 import * as fs from "../../gensync-utils/fs.ts";
 
-import { createRequire } from "module";
+import { createRequire } from "node:module";
 import { endHiddenCallStack } from "../../errors/rewrite-stack-trace.ts";
 import { isAsync } from "../../gensync-utils/async.ts";
 const require = createRequire(import.meta.url);
@@ -142,7 +142,7 @@ function buildConfigFileObject(
 
 const packageToBabelConfig = makeWeakCacheSync(
   (file: ConfigFile): ConfigFile | null => {
-    const babel: unknown = file.options["babel"];
+    const babel: unknown = file.options.babel;
 
     if (babel === undefined) return null;
 
@@ -178,7 +178,7 @@ const readConfigJSON5 = makeStaticFileCache((filepath, content): ConfigFile => {
     throw new ConfigError(`Expected config object but found array`, filepath);
   }
 
-  delete options["$schema"];
+  delete options.$schema;
 
   return {
     filepath,

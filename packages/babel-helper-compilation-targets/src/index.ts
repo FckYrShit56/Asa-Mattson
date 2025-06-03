@@ -1,6 +1,6 @@
 import browserslist from "browserslist";
 import { findSuggestion } from "@babel/helper-validator-option";
-import browserModulesData from "@babel/compat-data/native-modules";
+import browserModulesData from "@babel/compat-data/native-modules" with { type: "json" };
 import LruCache from "lru-cache";
 
 import {
@@ -20,7 +20,7 @@ import type {
   Browsers,
   BrowserslistBrowserName,
   TargetsTuple,
-} from "./types.ts";
+} from "./types.d.ts";
 
 export type { Target, Targets, InputTargets };
 
@@ -243,6 +243,10 @@ export default function getTargets(
         browsers = [];
       }
     }
+  }
+
+  if (process.env.BABEL_8_BREAKING && esmodules) {
+    esmodules = "intersect";
   }
 
   // `esmodules` as a target indicates the specific set of browsers supporting ES Modules.

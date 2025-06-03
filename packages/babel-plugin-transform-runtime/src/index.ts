@@ -53,7 +53,7 @@ export default declare((api, options: Options, dirname) => {
 
   if (Object.hasOwn(options, "useBuiltIns")) {
     // @ts-expect-error deprecated options
-    if (options["useBuiltIns"]) {
+    if (options.useBuiltIns) {
       throw new Error(
         "The 'useBuiltIns' option has been removed. The @babel/runtime " +
           "module now uses builtins by default.",
@@ -68,7 +68,7 @@ export default declare((api, options: Options, dirname) => {
 
   if (Object.hasOwn(options, "polyfill")) {
     // @ts-expect-error deprecated options
-    if (options["polyfill"] === false) {
+    if (options.polyfill === false) {
       throw new Error(
         "The 'polyfill' option has been removed. The @babel/runtime " +
           "module now skips polyfilling by default.",
@@ -178,6 +178,16 @@ export default declare((api, options: Options, dirname) => {
                 [],
                 t.identifier("regeneratorRuntime"),
               );
+            }
+            if (
+              name === "regenerator" ||
+              name === "regeneratorKeys" ||
+              name === "regeneratorAsync" ||
+              name === "regeneratorAsyncGen"
+            ) {
+              // See the `newHelpersAvailable` function in
+              // babel-plugin-transform-regenerator/src/regenerator/util.ts
+              return t.identifier("__interal_marker_fallback_regenerator__");
             }
             return;
           }

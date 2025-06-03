@@ -35,7 +35,7 @@ import type { Targets, InputTargets } from "@babel/helper-compilation-targets";
 import availablePlugins from "./available-plugins.ts";
 import { declarePreset } from "@babel/helper-plugin-utils";
 
-import type { BuiltInsOption, ModuleOption, Options } from "./types.ts";
+import type { BuiltInsOption, ModuleOption, Options } from "./types.d.ts";
 export type { Options };
 
 // TODO: Remove in Babel 8
@@ -497,7 +497,6 @@ option \`forceAllTransforms: true\` instead.
       ) {
         // For backward compatibility with the import-assertions plugin, we
         // allow the deprecated `assert` keyword.
-        // TODO(Babel 8): Revisit this.
         return [getPlugin(pluginName), { deprecatedAssertSyntax: true }];
       }
       return [

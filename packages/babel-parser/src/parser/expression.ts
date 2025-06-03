@@ -61,7 +61,7 @@ import {
   type UnparenthesizedPipeBodyTypes,
 } from "../parse-error/pipeline-operator-errors.ts";
 import { setInnerComments } from "./comments.ts";
-import { cloneIdentifier, type Undone } from "./node.ts";
+import type { Undone } from "./node.ts";
 import type Parser from "./index.ts";
 
 import { OptionFlags, type SourceType } from "../options.ts";
@@ -165,9 +165,14 @@ export default abstract class ExpressionParser extends LValParser {
   getExpression(this: Parser): N.Expression & N.ParserOutput {
     this.enterInitialScopes();
     this.nextToken();
+    if (this.match(tt.eof)) {
+      throw this.raise(Errors.ParseExpressionEmptyInput, this.state.startLoc);
+    }
     const expr = this.parseExpression() as N.Expression & N.ParserOutput;
     if (!this.match(tt.eof)) {
-      this.unexpected();
+      throw this.raise(Errors.ParseExpressionExpectsEOF, this.state.startLoc, {
+        unexpected: this.input.codePointAt(this.state.start),
+      });
     }
     // Unlike parseTopLevel, we need to drain remaining commentStacks
     // because the top level node is _not_ Program.
@@ -268,9 +273,11 @@ export default abstract class ExpressionParser extends LValParser {
     afterLeftParse?: Function,
   ): N.Expression {
     const startLoc = this.state.startLoc;
-    if (this.isContextual(tt._yield)) {
+    const isYield = this.isContextual(tt._yield);
+    if (isYield) {
       if (this.prodParam.hasYield) {
-        let left = this.parseYield();
+        this.next();
+        let left = this.parseYield(startLoc);
         if (afterLeftParse) {
           left = afterLeftParse.call(this, left, startLoc);
         }
@@ -335,6 +342,17 @@ export default abstract class ExpressionParser extends LValParser {
       return node;
     } else if (ownExpressionErrors) {
       this.checkExpressionErrors(refExpressionErrors, true);
+    }
+
+    if (isYield) {
+      const { type } = this.state;
+      const startsExpr = this.hasPlugin("v8intrinsic")
+        ? tokenCanStartExpression(type)
+        : tokenCanStartExpression(type) && !this.match(tt.modulo);
+      if (startsExpr && !this.isAmbiguousPrefixOrIdentifier()) {
+        this.raiseOverwrite(Errors.YieldNotInGeneratorFunction, startLoc);
+        return this.parseYield(startLoc);
+      }
     }
 
     return left;
@@ -660,7 +678,7 @@ export default abstract class ExpressionParser extends LValParser {
       const startsExpr = this.hasPlugin("v8intrinsic")
         ? tokenCanStartExpression(type)
         : tokenCanStartExpression(type) && !this.match(tt.modulo);
-      if (startsExpr && !this.isAmbiguousAwait()) {
+      if (startsExpr && !this.isAmbiguousPrefixOrIdentifier()) {
         this.raiseOverwrite(Errors.AwaitNotInAsyncContext, startLoc);
         return this.parseAwait(startLoc);
       }
@@ -761,8 +779,7 @@ export default abstract class ExpressionParser extends LValParser {
         this.raise(Errors.OptionalChainingNoNew, this.state.startLoc);
         if (this.lookaheadCharCode() === charCodes.leftParenthesis) {
           // stop at `?.` when parsing `new a?.()`
-          state.stop = true;
-          return base;
+          return this.stopParseSubscript(base, state);
         }
       }
       state.optionalChainMember = optional = true;
@@ -781,10 +798,18 @@ export default abstract class ExpressionParser extends LValParser {
       if (computed || optional || this.eat(tt.dot)) {
         return this.parseMember(base, startLoc, state, computed, optional);
       } else {
-        state.stop = true;
-        return base;
+        return this.stopParseSubscript(base, state);
       }
     }
+  }
+
+  stopParseSubscript(
+    this: Parser,
+    base: N.Expression,
+    state: N.ParseSubscriptState,
+  ) {
+    state.stop = true;
+    return base;
   }
 
   // base[?Yield, ?Await] [ Expression[+In, ?Yield, ?Await] ]
@@ -818,7 +843,7 @@ export default abstract class ExpressionParser extends LValParser {
     }
 
     if (state.optionalChainMember) {
-      (node as N.OptionalMemberExpression).optional = optional;
+      (node as Undone<N.OptionalMemberExpression>).optional = optional;
       return this.finishNode(node, "OptionalMemberExpression");
     } else {
       return this.finishNode(node, "MemberExpression");
@@ -874,8 +899,7 @@ export default abstract class ExpressionParser extends LValParser {
     }
 
     if (optionalChainMember) {
-      // @ts-expect-error when optionalChainMember is true, node must be an optional call
-      node.optional = optional;
+      (node as Undone<N.OptionalCallExpression>).optional = optional;
     }
 
     if (optional) {
@@ -1076,7 +1100,9 @@ export default abstract class ExpressionParser extends LValParser {
         this.next();
 
         if (this.match(tt.dot)) {
-          return this.parseImportMetaProperty(node as Undone<N.MetaProperty>);
+          return this.parseImportMetaPropertyOrPhaseCall(
+            node as Undone<N.MetaProperty | N.ImportExpression>,
+          );
         }
 
         if (this.match(tt.parenL)) {
@@ -1127,28 +1153,12 @@ export default abstract class ExpressionParser extends LValParser {
         return this.parseParenAndDistinguishExpression(canBeArrow);
       }
 
-      case tt.bracketBarL:
-      case tt.bracketHashL: {
-        return this.parseArrayLike(
-          this.state.type === tt.bracketBarL ? tt.bracketBarR : tt.bracketR,
-          /* canBePattern */ false,
-          /* isTuple */ true,
-        );
-      }
       case tt.bracketL: {
         return this.parseArrayLike(
           tt.bracketR,
           /* canBePattern */ true,
           /* isTuple */ false,
           refExpressionErrors,
-        );
-      }
-      case tt.braceBarL:
-      case tt.braceHashL: {
-        return this.parseObjectLike(
-          this.state.type === tt.braceBarL ? tt.braceBarR : tt.braceR,
-          /* isPattern */ false,
-          /* isRecord */ true,
         );
       }
       case tt.braceL: {
@@ -1250,8 +1260,22 @@ export default abstract class ExpressionParser extends LValParser {
       }
 
       default:
-        if (!process.env.BABEL_8_BREAKING && type === tt.decimal) {
-          return this.parseDecimalLiteral(this.state.value);
+        if (!process.env.BABEL_8_BREAKING) {
+          if (type === tt.decimal) {
+            return this.parseDecimalLiteral(this.state.value);
+          } else if (type === tt.bracketBarL || type === tt.bracketHashL) {
+            return this.parseArrayLike(
+              this.state.type === tt.bracketBarL ? tt.bracketBarR : tt.bracketR,
+              /* canBePattern */ false,
+              /* isTuple */ true,
+            );
+          } else if (type === tt.braceBarL || type === tt.braceHashL) {
+            return this.parseObjectLike(
+              this.state.type === tt.braceBarL ? tt.braceBarR : tt.braceR,
+              /* isPattern */ false,
+              /* isRecord */ true,
+            );
+          }
         }
 
         if (tokenIsIdentifier(type)) {
@@ -1605,44 +1629,38 @@ export default abstract class ExpressionParser extends LValParser {
   }
 
   // https://tc39.es/ecma262/#prod-ImportMeta
-  parseImportMetaProperty(
+  // https://tc39.es/proposal-source-phase-imports/
+  parseImportMetaPropertyOrPhaseCall(
     this: Parser,
     node: Undone<N.MetaProperty | N.ImportExpression>,
   ): N.MetaProperty | N.ImportExpression {
-    const id = this.createIdentifier(
-      this.startNodeAtNode<N.Identifier>(node),
-      "import",
-    );
     this.next(); // eat `.`
 
-    if (this.isContextual(tt._meta)) {
-      if (!this.inModule) {
-        this.raise(Errors.ImportMetaOutsideModule, id);
-      }
-      this.sawUnambiguousESM = true;
-    } else if (this.isContextual(tt._source) || this.isContextual(tt._defer)) {
+    if (this.isContextual(tt._source) || this.isContextual(tt._defer)) {
       const isSource = this.isContextual(tt._source);
 
       this.expectPlugin(
         isSource ? "sourcePhaseImports" : "deferredImportEvaluation",
       );
-      if (!(this.optionFlags & OptionFlags.CreateImportExpressions)) {
-        throw this.raise(
-          Errors.DynamicImportPhaseRequiresImportExpressions,
-          this.state.startLoc,
-          {
-            phase: this.state.value,
-          },
-        );
-      }
       this.next();
       (node as Undone<N.ImportExpression>).phase = isSource
         ? "source"
         : "defer";
       return this.parseImportCall(node as Undone<N.ImportExpression>);
+    } else {
+      const id = this.createIdentifierAt(
+        this.startNodeAtNode<N.Identifier>(node),
+        "import",
+        this.state.lastTokStartLoc,
+      );
+      if (this.isContextual(tt._meta)) {
+        if (!this.inModule) {
+          this.raise(Errors.ImportMetaOutsideModule, id);
+        }
+        this.sawUnambiguousESM = true;
+      }
+      return this.parseMetaProperty(node as Undone<N.MetaProperty>, id, "meta");
     }
-
-    return this.parseMetaProperty(node as Undone<N.MetaProperty>, id, "meta");
   }
 
   parseLiteralAtNode<T extends N.Node>(
@@ -2271,7 +2289,7 @@ export default abstract class ExpressionParser extends LValParser {
         ? this.parseMaybeDefault(this.state.startLoc)
         : this.parseMaybeAssignAllowIn(refExpressionErrors);
 
-      return this.finishNode(prop, "ObjectProperty");
+      return this.finishObjectProperty(prop);
     }
 
     if (!prop.computed && prop.key.type === "Identifier") {
@@ -2284,7 +2302,7 @@ export default abstract class ExpressionParser extends LValParser {
       if (isPattern) {
         prop.value = this.parseMaybeDefault(
           startLoc,
-          cloneIdentifier(prop.key),
+          this.cloneIdentifier(prop.key),
         );
       } else if (this.match(tt.eq)) {
         const shorthandAssignLoc = this.state.startLoc;
@@ -2297,15 +2315,19 @@ export default abstract class ExpressionParser extends LValParser {
         }
         prop.value = this.parseMaybeDefault(
           startLoc,
-          cloneIdentifier(prop.key),
+          this.cloneIdentifier(prop.key),
         );
       } else {
-        prop.value = cloneIdentifier(prop.key);
+        prop.value = this.cloneIdentifier(prop.key);
       }
       prop.shorthand = true;
 
-      return this.finishNode(prop, "ObjectProperty");
+      return this.finishObjectProperty(prop);
     }
+  }
+
+  finishObjectProperty(node: Undone<N.ObjectProperty>) {
+    return this.finishNode(node, "ObjectProperty");
   }
 
   parseObjPropValue<T extends N.ObjectMember>(
@@ -2739,14 +2761,22 @@ export default abstract class ExpressionParser extends LValParser {
     return this.createIdentifier(node, name);
   }
 
-  createIdentifier(
-    node: Omit<N.Identifier, "type">,
-    name: string,
-  ): N.Identifier {
+  createIdentifier(node: Undone<N.Identifier>, name: string): N.Identifier {
     node.name = name;
     node.loc.identifierName = name;
 
     return this.finishNode(node, "Identifier");
+  }
+
+  createIdentifierAt(
+    node: Undone<N.Identifier>,
+    name: string,
+    endLoc: Position,
+  ): N.Identifier {
+    node.name = name;
+    node.loc.identifierName = name;
+
+    return this.finishNodeAt(node, "Identifier", endLoc);
   }
 
   parseIdentifierName(liberal?: boolean): string {
@@ -2836,7 +2866,7 @@ export default abstract class ExpressionParser extends LValParser {
     }
   }
 
-  // Returns wether `await` is allowed or not in this context, and if it is
+  // Returns whether `await` is allowed or not in this context, and if it is
   // keeps track of it to determine whether a module uses top-level await.
   recordAwaitIfAllowed(): boolean {
     const isAwaitAllowed =
@@ -2869,7 +2899,7 @@ export default abstract class ExpressionParser extends LValParser {
       !this.scope.inFunction &&
       !(this.optionFlags & OptionFlags.AllowAwaitOutsideFunction)
     ) {
-      if (this.isAmbiguousAwait()) {
+      if (this.isAmbiguousPrefixOrIdentifier()) {
         this.ambiguousScriptDifferentAst = true;
       } else {
         this.sawUnambiguousESM = true;
@@ -2883,7 +2913,7 @@ export default abstract class ExpressionParser extends LValParser {
     return this.finishNode(node, "AwaitExpression");
   }
 
-  isAmbiguousAwait(): boolean {
+  isAmbiguousPrefixOrIdentifier(): boolean {
     if (this.hasPrecedingLineBreak()) return true;
     const { type } = this.state;
     return (
@@ -2906,15 +2936,14 @@ export default abstract class ExpressionParser extends LValParser {
 
   // Parses yield expression inside generator.
 
-  parseYield(this: Parser): N.YieldExpression {
-    const node = this.startNode<N.YieldExpression>();
+  parseYield(this: Parser, startLoc: Position): N.YieldExpression {
+    const node = this.startNodeAt<N.YieldExpression>(startLoc);
 
     this.expressionScope.recordParameterInitializerError(
       Errors.YieldInParameter,
       node,
     );
 
-    this.next();
     let delegating = false;
     let argument: N.Expression | null = null;
     if (!this.hasPrecedingLineBreak()) {
@@ -2953,16 +2982,20 @@ export default abstract class ExpressionParser extends LValParser {
     if (this.eat(tt.comma)) {
       if (!this.match(tt.parenR)) {
         node.options = this.parseMaybeAssignAllowIn();
+        if (this.eat(tt.comma)) {
+          this.addTrailingCommaExtraToNode(node.options);
+          if (!this.match(tt.parenR)) {
+            // keep consuming arguments, to then throw ImportCallArity
+            // instead of "expected )"
+            do {
+              this.parseMaybeAssignAllowIn();
+            } while (this.eat(tt.comma) && !this.match(tt.parenR));
 
-        if (this.eat(tt.comma) && !this.match(tt.parenR)) {
-          // keep consuming arguments, to then throw ImportCallArity
-          // instead of "expected )"
-          do {
-            this.parseMaybeAssignAllowIn();
-          } while (this.eat(tt.comma) && !this.match(tt.parenR));
-
-          this.raise(Errors.ImportCallArity, node);
+            this.raise(Errors.ImportCallArity, node);
+          }
         }
+      } else {
+        this.addTrailingCommaExtraToNode(node.source);
       }
     }
     this.expect(tt.parenR);

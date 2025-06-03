@@ -1,5 +1,5 @@
 import { parse } from "@babel/parser";
-import path from "path";
+import path from "node:path";
 import fixtures from "@babel/helper-fixtures";
 import * as babel from "@babel/core";
 import pluginTransformTypeScript from "@babel/plugin-transform-typescript";
@@ -14,6 +14,10 @@ const { __dirname } = commonJS(import.meta.url);
 const suites = (fixtures.default || fixtures)(path.join(__dirname, "fixtures"));
 
 const FAILURES = [
+  // Todo: support trailing comments spanned across trailing comma
+  "import-phases/source-expression-comments/input.js",
+  "import-phases/source-expression-options-comments/input.js",
+
   // These tests are either explicitly about re-formatting the decorators position,
   // or about an old decorators version
   "comments/decorators-after-export-to-before/input.js",
@@ -38,7 +42,7 @@ const FAILURES = [
   "flow/iterator-inside-types/input.js",
   "flow/object-literal-types/input.js",
   "flow/opaque-type-alias/input.js",
-  "flow/parantheses/input.js",
+  "flow/parentheses/input.js",
   "flow/predicates/input.js",
   "flow/this-param/input.js",
   "flow/tuples/input.js",
@@ -52,14 +56,12 @@ const FAILURES = [
   "importAttributesKeyword/assertions-assert-to-with/input.js",
   "importAttributesKeyword/assertions-assert-to-with-legacy/input.js",
   "importAttributesKeyword/assertions-with-to-assert/input.js",
-  "importAttributesKeyword/assertions-with-to-default/input.js",
   "importAttributesKeyword/assertions-with-to-with-legacy/input.js",
   "importAttributesKeyword/attributes-assert-to-default/input.js",
   "importAttributesKeyword/attributes-assert-to-default-babel-7/input.js",
   "importAttributesKeyword/attributes-assert-to-with/input.js",
   "importAttributesKeyword/attributes-assert-to-with-legacy/input.js",
   "importAttributesKeyword/attributes-with-to-assert/input.js",
-  "importAttributesKeyword/attributes-with-to-default-babel-7/input.js",
   "importAttributesKeyword/attributes-with-to-with-legacy/input.js",
   "importAttributesKeyword/legacy-module-attributes-to-assert/input.js",
   "importAttributesKeyword/legacy-module-attributes-to-with/input.js",

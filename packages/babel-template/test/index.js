@@ -38,6 +38,29 @@ describe("@babel/template", function () {
     expect(generator(output2).code).toBe(comments);
   });
 
+  it("should allow yield outside generator function by default", function () {
+    expect(template.ast("yield 1")).toMatchInlineSnapshot(`
+      Object {
+        "expression": Object {
+          "argument": Object {
+            "extra": Object {
+              "raw": "1",
+              "rawValue": 1,
+            },
+            "loc": undefined,
+            "type": "NumericLiteral",
+            "value": 1,
+          },
+          "delegate": false,
+          "loc": undefined,
+          "type": "YieldExpression",
+        },
+        "loc": undefined,
+        "type": "ExpressionStatement",
+      }
+    `);
+  });
+
   describe("string-based", () => {
     it("should handle replacing values from an object", () => {
       const value = t.stringLiteral("some string value");
@@ -219,6 +242,11 @@ describe("@babel/template", function () {
       expect(result.type).toBe("IfStatement");
       expect(result.test.type).toBe("BinaryExpression");
       expect(result.test.left).toBe(value);
+    });
+
+    it("should correctly handle empty string as computed property key", () => {
+      const result = template.ast`obj["${""}"] = 1`;
+      expect(result.type).toBe("ExpressionStatement");
     });
 
     it("should return assertions in ImportDeclaration when using .ast", () => {

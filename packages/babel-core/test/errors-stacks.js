@@ -1,8 +1,8 @@
 import * as babel from "../lib/index.js";
 
 import { commonJS, itGte } from "$repo-utils";
-import path from "path";
-import { spawnSync } from "child_process";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 const { __dirname } = commonJS(import.meta.url);
 
@@ -27,7 +27,7 @@ function expectError(run) {
     // visible when using --run-in-band, comes from inside jest but doesn't have an
     // associated file path.
     stack = stack.replace(
-      /(?:\n\s*at (?:[^\n]+?node_modules\/(?:@?jest|tinypool|piscina)|\n\s*at async Promise.all)[^\n]+)+/g,
+      /(?:\n\s*at (?:[^\n]+?node_modules\/(?:@?jest|tinypool|piscina)|async Promise\.all)[^\n]+)+/g,
       "\n    at ... internal jest frames ...",
     );
     // Remove node internal frames, since they change by version
@@ -43,6 +43,15 @@ function expectError(run) {
     // are quite different from newer stack traces.
     // TODO(Babel 8): Delete this code
     {
+      // Node.js <= 14
+      stack = stack.replace(
+        "\n    at Module._extensions..js (... internal node frames ...)",
+        "",
+      );
+      stack = stack.replace(
+        "\n    at Object.require.extensions.<computed> [as .js] (<CWD>/node_modules/ts-node/src/index.ts:_:_)",
+        "",
+      );
       // Node.js <= 10
       stack = stack.replace(/(?:Object|undefined)(?=\.parseSync)/g, "Module");
       stack = stack.replace(

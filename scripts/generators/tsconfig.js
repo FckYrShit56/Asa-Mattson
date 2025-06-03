@@ -1,4 +1,4 @@
-import fs from "fs";
+import fs from "node:fs";
 import archivedSyntaxPkgs from "./archived-syntax-pkgs.json" with { type: "json" };
 
 function importJSON(path) {
@@ -78,12 +78,7 @@ function getTsPkgs(subRoot) {
             return [["", "/src"]];
           }
           if (name === "@babel/compat-data") {
-            // map ./plugins to ./data/plugins.json
-            const subExport = _export.slice(1);
-            const subExportPath = exportPath
-              .replace("./", "/data/")
-              .replace(/\.js$/, ".json");
-            return [[subExport, subExportPath]];
+            return [[_export.slice(1), exportPath.slice(1)]];
           }
           // [{esm, default}, "./lib/index.js"]
           if (Array.isArray(exportPath)) {
@@ -92,13 +87,17 @@ function getTsPkgs(subRoot) {
           if (typeof exportPath === "object") {
             exportPath = exportPath.default;
           }
-          if (exportPath.startsWith("./lib") && exportPath.endsWith(".js")) {
+          if (
+            exportPath.startsWith("./lib") &&
+            (exportPath.endsWith(".js") || exportPath.endsWith(".cjs"))
+          ) {
             // remove the leading `.` and trailing `.js`
-            const subExport = _export.slice(1).replace(/\.js$/, "");
+            const subExport = _export.slice(1).replace(/\.c?js$/, "");
             const subExportPath = exportPath
               .replace("./lib", "/src")
               .replace(/\.js$/, ".ts")
-              .replace(/\/index\.ts$/, "");
+              .replace(/\.cjs$/, ".cts")
+              .replace(/\/index\.c?ts$/, "");
             return [[subExport, subExportPath]];
           }
           return [];

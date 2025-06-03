@@ -1,6 +1,6 @@
 {
   "name": "@babel/core",
-  "version": "7.26.10",
+  "version": "7.27.4",
   "description": "Babel compiler core.",
   "main": "./lib/index.js",
   "author": "The Babel Team (https://babel.dev/team)",
@@ -90,7 +90,7 @@
           }
         },
         "engines": {
-          "node": "^18.20.0 || ^20.17.0 || >=22.8.0"
+          "node": "^20.19.0 || >=22.12.0"
         }
       },
       {
@@ -102,7 +102,6 @@
         "exports": {
           ".": {
             "types": "./lib/index.d.ts",
-            "require": "./cjs-proxy.cjs",
             "default": "./lib/index.js"
           },
           "./package.json": "./package.json"
@@ -116,7 +115,6 @@
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",
-      "require": "./cjs-proxy-dev.cjs",
       "default": "./lib/index.js"
     },
     "./package.json": "./package.json"

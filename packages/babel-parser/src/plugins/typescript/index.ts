@@ -22,7 +22,7 @@ import type { ExpressionErrors } from "../../parser/util.ts";
 import type { ParseStatementFlag } from "../../parser/statement.ts";
 import { ParamKind } from "../../util/production-parameter.ts";
 import { Errors, ParseErrorEnum } from "../../parse-error.ts";
-import { cloneIdentifier, type Undone } from "../../parser/node.ts";
+import type { Undone } from "../../parser/node.ts";
 import type { Pattern } from "../../types.ts";
 import type { ClassWithMixin, IJSXParserMixin } from "../jsx/index.ts";
 import { ParseBindingListFlags } from "../../parser/lval.ts";
@@ -91,11 +91,11 @@ const TSErrors = ParseErrorEnum`typescript`({
     "Initializers are not allowed in ambient contexts.",
   DeclareFunctionHasImplementation:
     "An implementation cannot be declared in ambient contexts.",
-  DuplicateAccessibilityModifier:
-    // `Accessibility modifier already seen: ${modifier}` would be more helpful.
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    ({ modifier }: { modifier: N.Accessibility }) =>
-      `Accessibility modifier already seen.`,
+  DuplicateAccessibilityModifier: ({
+    modifier,
+  }: {
+    modifier: N.Accessibility;
+  }) => `Accessibility modifier already seen: '${modifier}'.`,
   DuplicateModifier: ({ modifier }: { modifier: TsModifier }) =>
     `Duplicate modifier: '${modifier}'.`,
   // `token` matches the terminology used by typescript:
@@ -133,6 +133,8 @@ const TSErrors = ParseErrorEnum`typescript`({
     "Initializers are not allowed in ambient contexts.",
   InvalidHeritageClauseType: ({ token }: { token: "extends" | "implements" }) =>
     `'${token}' list can only include identifiers or qualified-names with optional type arguments.`,
+  InvalidModifierOnAwaitUsingDeclaration: (modifier: TsModifier) =>
+    `'${modifier}' modifier cannot appear on an await using declaration.`,
   InvalidModifierOnTypeMember: ({ modifier }: { modifier: TsModifier }) =>
     `'${modifier}' modifier cannot appear on a type member.`,
   InvalidModifierOnTypeParameter: ({ modifier }: { modifier: TsModifier }) =>
@@ -143,6 +145,9 @@ const TSErrors = ParseErrorEnum`typescript`({
     modifier: TsModifier;
   }) =>
     `'${modifier}' modifier can only appear on a type parameter of a class, interface or type alias.`,
+
+  InvalidModifierOnUsingDeclaration: (modifier: TsModifier) =>
+    `'${modifier}' modifier cannot appear on a using declaration.`,
   InvalidModifiersOrder: ({
     orderedModifiers,
   }: {
@@ -158,7 +163,7 @@ const TSErrors = ParseErrorEnum`typescript`({
     "'interface' declarations must be followed by an identifier.",
   NonAbstractClassHasAbstractMethod:
     "Abstract methods can only appear within an abstract class.",
-  NonClassMethodPropertyHasAbstractModifer:
+  NonClassMethodPropertyHasAbstractModifier:
     "'abstract' modifier can only appear on a class, method, or property declaration.",
   OptionalTypeBeforeRequired:
     "A required element cannot follow an optional element.",
@@ -331,6 +336,7 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
     tsParseModifier<T extends TsModifier>(
       allowedModifiers: T[],
       stopOnStartOfClassStaticBlock?: boolean,
+      hasSeenStaticModifier?: boolean,
     ): T | undefined | null {
       if (
         !tokenIsIdentifier(this.state.type) &&
@@ -342,6 +348,9 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
 
       const modifier = this.state.value;
       if (allowedModifiers.includes(modifier)) {
+        if (hasSeenStaticModifier && this.match(tt._static)) {
+          return undefined;
+        }
         if (stopOnStartOfClassStaticBlock && this.tsIsStartOfStaticBlocks()) {
           return undefined;
         }
@@ -404,6 +413,7 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
         const modifier: TsModifier | undefined | null = this.tsParseModifier(
           allowedModifiers.concat(disallowedModifiers ?? []),
           stopOnStartOfClassStaticBlock,
+          modified.static,
         );
 
         if (!modifier) break;
@@ -595,9 +605,8 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
           node.argument = this.parseStringLiteral(this.state.value);
         }
       }
-      if (this.eat(tt.comma) && !this.match(tt.parenR)) {
-        node.options = super.parseMaybeAssignAllowIn();
-        this.eat(tt.comma);
+      if (this.eat(tt.comma)) {
+        node.options = this.tsParseImportTypeOptions();
       } else {
         node.options = null;
       }
@@ -619,6 +628,43 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
         }
       }
       return this.finishNode(node, "TSImportType");
+    }
+
+    tsParseImportTypeOptions(): N.ObjectExpression {
+      const node = this.startNode<N.ObjectExpression>();
+      this.expect(tt.braceL);
+      const withProperty = this.startNode<N.ObjectProperty>();
+      if (this.isContextual(tt._with)) {
+        withProperty.method = false;
+        withProperty.key = this.parseIdentifier(true);
+        withProperty.computed = false;
+        withProperty.shorthand = false;
+      } else {
+        this.unexpected(null, tt._with);
+      }
+      this.expect(tt.colon);
+      withProperty.value = this.tsParseImportTypeWithPropertyValue();
+      node.properties = [this.finishObjectProperty(withProperty)];
+      this.expect(tt.braceR);
+      return this.finishNode(node, "ObjectExpression");
+    }
+
+    tsParseImportTypeWithPropertyValue(): N.ObjectExpression {
+      const node = this.startNode<N.ObjectExpression>();
+      const properties = [];
+      this.expect(tt.braceL);
+      while (!this.match(tt.braceR)) {
+        const type = this.state.type;
+        if (tokenIsIdentifier(type) || type === tt.string) {
+          properties.push(super.parsePropertyDefinition(null));
+        } else {
+          this.unexpected();
+        }
+        this.eat(tt.comma);
+      }
+      node.properties = properties;
+      this.next(); // eat }
+      return this.finishNode(node, "ObjectExpression");
     }
 
     tsParseEntityName(flags: tsParseEntityNameFlags): N.TsEntityName {
@@ -896,17 +942,16 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
     }
 
     tsParsePropertyOrMethodSignature(
-      node: N.TsPropertySignature | N.TsMethodSignature,
+      node: Undone<N.TsPropertySignature | N.TsMethodSignature>,
       readonly: boolean,
     ): N.TsPropertySignature | N.TsMethodSignature {
       if (this.eat(tt.question)) node.optional = true;
-      const nodeAny: any = node;
 
       if (this.match(tt.parenL) || this.match(tt.lt)) {
         if (readonly) {
           this.raise(TSErrors.ReadonlyForMethodSignature, node);
         }
-        const method: N.TsMethodSignature = nodeAny;
+        const method = node as Undone<N.TsMethodSignature>;
         if (method.kind && this.match(tt.lt)) {
           this.raise(
             TSErrors.AccessorCannotHaveTypeParameters,
@@ -969,7 +1014,7 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
         }
         return this.finishNode(method, "TSMethodSignature");
       } else {
-        const property: N.TsPropertySignature = nodeAny;
+        const property = node as Undone<N.TsPropertySignature>;
         if (readonly) property.readonly = true;
         const type = this.tsTryParseTypeAnnotation();
         if (type) property.typeAnnotation = type;
@@ -1029,6 +1074,10 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
       ) {
         node.kind = node.key.name;
         super.parsePropertyName(node);
+        // Allow < here so that we can recover from get key<T> later
+        if (!this.match(tt.parenL) && !this.match(tt.lt)) {
+          this.unexpected(null, tt.parenL);
+        }
       }
       return this.tsParsePropertyOrMethodSignature(node, !!node.readonly);
     }
@@ -2198,59 +2247,82 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
       this.state = state;
     }
 
-    tsTryParseDeclare(nany: any) {
+    tsTryParseDeclare(node: any) {
       if (this.isLineTerminator()) {
         return;
       }
-      let startType = this.state.type;
-      let kind: "let" | null;
-
-      if (this.isContextual(tt._let)) {
-        startType = tt._var;
-        kind = "let";
-      }
-
+      const startType = this.state.type;
       return this.tsInAmbientContext(() => {
         switch (startType) {
           case tt._function:
-            nany.declare = true;
+            node.declare = true;
             return super.parseFunctionStatement(
-              nany,
+              node,
               /* async */ false,
               /* isHangingDeclaration */ false,
             );
           case tt._class:
             // While this is also set by tsParseExpressionStatement, we need to set it
             // before parsing the class declaration to know how to register it in the scope.
-            nany.declare = true;
+            node.declare = true;
             return this.parseClass(
-              nany as Undone<N.ClassDeclaration>,
+              node as Undone<N.ClassDeclaration>,
               /* isStatement */ true,
               /* optionalId */ false,
             );
           case tt._enum:
-            return this.tsParseEnumDeclaration(nany, { declare: true });
+            return this.tsParseEnumDeclaration(node, { declare: true });
           case tt._global:
-            return this.tsParseAmbientExternalModuleDeclaration(nany);
+            return this.tsParseAmbientExternalModuleDeclaration(node);
+          case tt._let:
+            if (this.state.containsEsc) {
+              return;
+            }
+          // fallthrough
           case tt._const:
           case tt._var:
             if (!this.match(tt._const) || !this.isLookaheadContextual("enum")) {
-              nany.declare = true;
-              return this.parseVarStatement(
-                nany,
-                kind || this.state.value,
-                true,
-              );
+              node.declare = true;
+              return this.parseVarStatement(node, this.state.value, true);
             }
 
             // `const enum = 0;` not allowed because "enum" is a strict mode reserved word.
             this.expect(tt._const);
-            return this.tsParseEnumDeclaration(nany, {
+            return this.tsParseEnumDeclaration(node, {
               const: true,
               declare: true,
             });
+          case tt._using:
+            if (
+              this.hasPlugin("explicitResourceManagement") &&
+              this.isUsing()
+            ) {
+              this.raise(
+                TSErrors.InvalidModifierOnUsingDeclaration,
+                this.state.startLoc,
+                "declare",
+              );
+              node.declare = true;
+              return this.parseVarStatement(node, "using", true);
+            }
+            break;
+          case tt._await:
+            if (
+              this.hasPlugin("explicitResourceManagement") &&
+              this.isAwaitUsing()
+            ) {
+              this.raise(
+                TSErrors.InvalidModifierOnAwaitUsingDeclaration,
+                this.state.startLoc,
+                "declare",
+              );
+              node.declare = true;
+              this.next(); // eat 'await'
+              return this.parseVarStatement(node, "await using", true);
+            }
+            break;
           case tt._interface: {
-            const result = this.tsParseInterfaceDeclaration(nany, {
+            const result = this.tsParseInterfaceDeclaration(node, {
               declare: true,
             });
             if (result) return result;
@@ -2259,7 +2331,7 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
           default:
             if (tokenIsIdentifier(startType)) {
               return this.tsParseDeclaration(
-                nany,
+                node,
                 this.state.value,
                 /* next */ true,
                 /* decorators */ null,
@@ -2460,8 +2532,10 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
       flags: ParseBindingListFlags,
       decorators: N.Decorator[],
     ): N.Pattern | N.TSParameterProperty {
-      // Store original location to include modifiers in range
-      const startLoc = this.state.startLoc;
+      // Store original location to include decorators/modifiers in range
+      const startLoc = decorators.length
+        ? decorators[0].loc.start
+        : this.state.startLoc;
 
       const modified: ModifierBase = {};
       this.tsParseModifiers(
@@ -2751,16 +2825,23 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
         }
 
         if (result) {
-          if (
-            result.type === "TSInstantiationExpression" &&
-            (this.match(tt.dot) ||
+          if (result.type === "TSInstantiationExpression") {
+            if (
+              this.match(tt.dot) ||
               (this.match(tt.questionDot) &&
-                this.lookaheadCharCode() !== charCodes.leftParenthesis))
-          ) {
-            this.raise(
-              TSErrors.InvalidPropertyAccessAfterInstantiationExpression,
-              this.state.startLoc,
-            );
+                this.lookaheadCharCode() !== charCodes.leftParenthesis)
+            ) {
+              this.raise(
+                TSErrors.InvalidPropertyAccessAfterInstantiationExpression,
+                this.state.startLoc,
+              );
+            }
+            if (!this.match(tt.dot) && !this.match(tt.questionDot)) {
+              // If TSInstantiationExpression is not followed by . / ?.,
+              // it must be the end of a subscript chain. Note that `(` already forms
+              // call expression arguments
+              result.expression = super.stopParseSubscript(base, state);
+            }
           }
           return result;
         }
@@ -2978,7 +3059,10 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
           /* isExport */ true,
         );
         if (process.env.BABEL_8_BREAKING) {
+          (node as Undone<N.ExportNamedDeclaration>).attributes = [];
           (node as Undone<N.ExportNamedDeclaration>).declaration = declaration;
+          (node as Undone<N.ExportNamedDeclaration>).exportKind = "value";
+          (node as Undone<N.ExportNamedDeclaration>).source = null;
           (node as Undone<N.ExportNamedDeclaration>).specifiers = [];
           return this.finishNode(node, "ExportNamedDeclaration");
         } else {
@@ -3035,7 +3119,7 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
 
     parseVarStatement(
       node: N.VariableDeclaration,
-      kind: "var" | "let" | "const" | "using",
+      kind: "var" | "let" | "const" | "using" | "await using",
       allowMissingInitializer: boolean = false,
     ) {
       const { isAmbientContext } = this.state;
@@ -3052,7 +3136,7 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
         if (!init) continue;
 
         // var and let aren't ever allowed initializers.
-        if (kind !== "const" || !!id.typeAnnotation) {
+        if (kind === "var" || kind === "let" || !!id.typeAnnotation) {
           this.raise(TSErrors.InitializerNotAllowedInAmbientContext, init);
         } else if (
           !isValidAmbientConstInitializer(init, this.hasPlugin("estree"))
@@ -3467,7 +3551,6 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
         this.raise(TSErrors.ConstructorHasTypeParameters, typeParameters);
       }
 
-      // @ts-expect-error declare does not exist in ClassMethod
       const { declare = false, kind } = method;
 
       if (declare && (kind === "get" || kind === "set")) {
@@ -3505,10 +3588,7 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
       // This happens when using the "estree" plugin.
       if (
         (node as N.Node).type === "MethodDefinition" &&
-        !Object.hasOwn(
-          (node as unknown as N.EstreeMethodDefinition).value,
-          "body",
-        )
+        (node as unknown as N.EstreeMethodDefinition).value.body == null
       ) {
         return;
       }
@@ -3568,7 +3648,7 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
     // `let x: number;`
     parseVarId(
       decl: N.VariableDeclarator,
-      kind: "var" | "let" | "const" | "using",
+      kind: "var" | "let" | "const" | "using" | "await using",
     ): void {
       super.parseVarId(decl, kind);
       if (
@@ -4153,7 +4233,7 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
         //   Foo {}
         if (!this.hasFollowingLineBreak()) {
           node.abstract = true;
-          this.raise(TSErrors.NonClassMethodPropertyHasAbstractModifer, node);
+          this.raise(TSErrors.NonClassMethodPropertyHasAbstractModifier, node);
           return this.tsParseInterfaceDeclaration(
             node as N.TsInterfaceDeclaration,
           );
@@ -4184,7 +4264,7 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
         inClassScope,
       );
       // @ts-expect-error todo(flow->ts) property not defined for all types in union
-      if (method.abstract) {
+      if (method.abstract || method.type === "TSAbstractMethodDefinition") {
         const hasEstreePlugin = this.hasPlugin("estree");
         const methodFn = hasEstreePlugin
           ? // @ts-expect-error estree typings
@@ -4366,7 +4446,7 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
           : this.parseModuleExportName();
       }
       if (!node[rightOfAsKey]) {
-        node[rightOfAsKey] = cloneIdentifier(node[leftOfAsKey]);
+        node[rightOfAsKey] = this.cloneIdentifier(node[leftOfAsKey]);
       }
       if (isImport) {
         this.checkIdentifier(
@@ -4375,6 +4455,125 @@ export default (superClass: ClassWithMixin<typeof Parser, IJSXParserMixin>) =>
             ? BindingFlag.TYPE_TS_TYPE_IMPORT
             : BindingFlag.TYPE_TS_VALUE_IMPORT,
         );
+      }
+    }
+
+    /**
+     * This hook is defined in the ESTree plugin.
+     * The TS-ESLint always define optional AST properties, here we provide the
+     * default value for such properties immediately after `finishNode` was invoked.
+     *
+     * @param node The AST node finished by finishNode
+     * @returns
+     */
+    fillOptionalPropertiesForTSESLint(node: N.Node): void {
+      switch (node.type) {
+        case "ExpressionStatement":
+          node.directive ??= undefined;
+          return;
+        case "RestElement":
+          node.value = undefined;
+        /* fallthrough */
+        case "Identifier":
+        case "ArrayPattern":
+        case "AssignmentPattern":
+        case "ObjectPattern":
+          node.decorators ??= [];
+          node.optional ??= false;
+          node.typeAnnotation ??= undefined;
+          return;
+        case "TSParameterProperty":
+          node.accessibility ??= undefined;
+          node.decorators ??= [];
+          node.override ??= false;
+          node.readonly ??= false;
+          node.static ??= false;
+          return;
+        case "TSEmptyBodyFunctionExpression":
+          node.body = null;
+        /* fallthrough */
+        case "TSDeclareFunction":
+        case "FunctionDeclaration":
+        case "FunctionExpression":
+        case "ClassMethod":
+        case "ClassPrivateMethod":
+          node.declare ??= false;
+          node.returnType ??= undefined;
+          node.typeParameters ??= undefined;
+          return;
+        case "Property":
+          node.optional ??= false;
+          return;
+        case "TSMethodSignature":
+        case "TSPropertySignature":
+          node.optional ??= false;
+        /* fallthrough */
+        case "TSIndexSignature":
+          node.accessibility ??= undefined;
+          node.readonly ??= false;
+          node.static ??= false;
+          return;
+        case "TSAbstractPropertyDefinition":
+        case "PropertyDefinition":
+        case "TSAbstractAccessorProperty":
+        case "AccessorProperty":
+          node.declare ??= false;
+          node.definite ??= false;
+          node.readonly ??= false;
+          node.typeAnnotation ??= undefined;
+        /* fallthrough */
+        case "TSAbstractMethodDefinition":
+        case "MethodDefinition":
+          node.accessibility ??= undefined;
+          node.decorators ??= [];
+          node.override ??= false;
+          node.optional ??= false;
+          return;
+        case "ClassExpression":
+          node.id ??= null;
+        /* fallthrough */
+        case "ClassDeclaration":
+          node.abstract ??= false;
+          node.declare ??= false;
+          node.decorators ??= [];
+          node.implements ??= [];
+          node.superTypeArguments ??= undefined;
+          node.typeParameters ??= undefined;
+          return;
+        case "TSTypeAliasDeclaration":
+        case "VariableDeclaration":
+          node.declare ??= false;
+          return;
+        case "VariableDeclarator":
+          node.definite ??= false;
+          return;
+        case "TSEnumDeclaration":
+          node.const ??= false;
+          node.declare ??= false;
+          return;
+        case "TSEnumMember":
+          node.computed ??= false;
+          return;
+        case "TSImportType":
+          node.qualifier ??= null;
+          node.options ??= null;
+          if (process.env.BABEL_8_BREAKING) {
+            node.typeArguments ??= null;
+          }
+          return;
+        case "TSInterfaceDeclaration":
+          node.declare ??= false;
+          node.extends ??= [];
+          return;
+        case "TSModuleDeclaration":
+          node.declare ??= false;
+          node.global ??= node.kind === "global";
+          return;
+        case "TSTypeParameter":
+          node.const ??= false;
+          node.in ??= false;
+          node.out ??= false;
+          return;
       }
     }
   };

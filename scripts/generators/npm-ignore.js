@@ -1,7 +1,7 @@
 import { glob } from "glob";
 import { repoRoot } from "$repo-utils";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "fs";
-import path from "path";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import path from "node:path";
 
 const commonIgnore = [
   "src",
@@ -12,7 +12,6 @@ const commonIgnore = [
 ];
 
 const extraIgnore = {
-  "babel-core": ["cjs-proxy-dev.cjs"],
   "babel-plugin-proposal-decorators": ["CONTRIB.md"],
   "babel-compat-data": ["build"],
 };

@@ -1,6 +1,6 @@
 import * as babel from "../lib/index.js";
 import { TraceMap, originalPositionFor } from "@jridgewell/trace-mapping";
-import path from "path";
+import path from "node:path";
 import generator from "@babel/generator";
 
 import _Plugin from "../lib/config/plugin.js";
@@ -1039,7 +1039,7 @@ if (IS_BABEL_8() && USE_ESM) {
     it("error should be caught", () => {
       let err;
       try {
-        const cjs = require("../cjs-proxy.cjs");
+        const cjs = require("../lib/index.js");
         cjs.parse("foo");
       } catch (error) {
         err = error;

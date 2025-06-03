@@ -1,10 +1,10 @@
-import path from "path";
-import fs from "fs";
-import { cpus } from "os";
-import { createRequire } from "module";
-import { fileURLToPath } from "url";
-import { Transform as TransformStream } from "stream";
-import { callbackify } from "util";
+import path from "node:path";
+import fs from "node:fs";
+import { cpus } from "node:os";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+import { Transform as TransformStream } from "node:stream";
+import { callbackify } from "node:util";
 import colors from "picocolors";
 import gulp from "gulp";
 import { rollup } from "rollup";
@@ -133,22 +133,6 @@ function generateTraverseHelpers(helperKind, outBase = "") {
     `./packages/babel-traverse/src/${outBase}/generated/`,
     `${helperKind}.d.ts`,
     `@babel/traverse -> ${helperKind}`
-  );
-}
-
-async function generateRuntimeHelpers() {
-  await generateHelpers(
-    `./packages/babel-helpers/scripts/generate-regenerator-runtime.js`,
-    `./packages/babel-helpers/src/helpers/`,
-    "regeneratorRuntime.js",
-    "@babel/helpers -> regeneratorRuntime"
-  );
-
-  return generateHelpers(
-    `./packages/babel-helpers/scripts/generate-helpers.js`,
-    `./packages/babel-helpers/src/`,
-    "helpers-generated.ts",
-    "@babel/helpers"
   );
 }
 
@@ -426,6 +410,9 @@ function buildRollup(packages, buildStandalone) {
               getBabelOutputPlugin({
                 configFile: false,
                 babelrc: false,
+                generatorOpts: {
+                  compact: false,
+                },
                 plugins: [
                   function babelPluginInlineConstNumericObjects({ types: t }) {
                     return {
@@ -736,11 +723,6 @@ if (bool(process.env.BABEL_8_BREAKING)) {
   }));
 }
 
-const cjsBundles = [
-  // This is used by @babel/register and @babel/eslint-parser
-  { src: "packages/babel-parser" },
-];
-
 const dtsBundles = bool(process.env.BABEL_8_BREAKING)
   ? Array.from(
       packagesIterator(
@@ -791,10 +773,15 @@ gulp.task("generate-type-helpers", () => {
   ]);
 });
 
-gulp.task("generate-runtime-helpers", () => {
+gulp.task("generate-runtime-helpers", async () => {
   log("Generating @babel/helpers runtime helpers");
 
-  return generateRuntimeHelpers();
+  await generateHelpers(
+    `./packages/babel-helpers/scripts/generate-helpers.js`,
+    `./packages/babel-helpers/src/`,
+    "helpers-generated.ts",
+    "@babel/helpers"
+  );
 });
 
 gulp.task("generate-standalone", () => generateStandalone());
@@ -859,46 +846,6 @@ ${fs.readFileSync(path.join(path.dirname(input), "license"), "utf8")}*/
   );
 });
 
-gulp.task("build-cjs-bundles", () => {
-  if (!USE_ESM) {
-    log(
-      colors.yellow(
-        "Skipping CJS-compat bundles for ESM-based builds, because not compiling to ESM"
-      )
-    );
-    return Promise.resolve();
-  }
-  return Promise.all(
-    cjsBundles.map(async ({ src, external = [] }) => {
-      const input = `./${src}/lib/index.js`;
-      const output = `./${src}/lib/index.cjs`;
-
-      const bundle = await rollup({
-        input,
-        external,
-        onwarn(warning, warn) {
-          if (warning.code === "CIRCULAR_DEPENDENCY") return;
-          warn(warning);
-        },
-        plugins: [
-          rollupCommonJs({ defaultIsModuleExports: true }),
-          rollupNodeResolve({
-            extensions: [".js", ".mjs", ".cjs", ".json"],
-            preferBuiltins: true,
-          }),
-        ],
-      });
-
-      await bundle.write({
-        file: output,
-        format: "cjs",
-        interop: "compat",
-        sourcemap: false,
-      });
-    })
-  );
-});
-
 gulp.task(
   "build",
   gulp.series(
@@ -908,7 +855,7 @@ gulp.task(
     // rebuild @babel/types and @babel/helpers since
     // type-helpers and generated helpers may be changed
     gulp.parallel("build-rollup", "build-babel"),
-    gulp.parallel("generate-standalone", "build-cjs-bundles")
+    "generate-standalone"
   )
 );
 
@@ -930,33 +877,20 @@ gulp.task(
       gulp.series(
         "generate-type-helpers",
         // rebuild @babel/types since type-helpers may be changed
-        "build-no-bundle",
-        "build-cjs-bundles"
+        "build-no-bundle"
       )
     )
   )
 );
 
 function watch() {
-  gulp.watch(
-    defaultSourcesGlob,
-    gulp.series("build-no-bundle-watch", "build-cjs-bundles")
-  );
+  gulp.watch(defaultSourcesGlob, gulp.task("build-no-bundle-watch"));
   gulp.watch(babelStandalonePluginConfigGlob, gulp.task("generate-standalone"));
   gulp.watch(buildTypingsWatchGlob, gulp.task("generate-type-helpers"));
   gulp.watch(
-    [
-      "./packages/babel-helpers/src/helpers/*",
-      "!./packages/babel-helpers/src/helpers/regeneratorRuntime.js",
-    ],
+    ["./packages/babel-helpers/src/helpers/*"],
     gulp.task("generate-runtime-helpers")
   );
-  if (USE_ESM) {
-    gulp.watch(
-      cjsBundles.map(({ src }) => `./${src}/lib/**.js`),
-      gulp.task("build-cjs-bundles")
-    );
-  }
 }
 
 gulp.task(

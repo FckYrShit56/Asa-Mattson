@@ -1,12 +1,12 @@
 import "shelljs/make.js";
-import path from "path";
+import path from "node:path";
 import {
   readFileSync,
   writeFileSync,
   readdirSync,
   existsSync,
   mkdirSync,
-} from "fs";
+} from "node:fs";
 import semver from "semver";
 import { execaSync } from "execa";
 
@@ -561,7 +561,7 @@ target["new-babel-8-version"] = function () {
   exec("git", ["pull", "--rebase"]);
 
   const pkg = JSON.parse(readFileSync("./package.json", "utf8"));
-  const nextVersion = semver.inc(pkg.version_babel8, "prerelease");
+  const nextVersion = semver.inc(pkg.version_babel8, "prerelease", "beta");
   pkg.version_babel8 = nextVersion;
   writeFileSync("./package.json", JSON.stringify(pkg, null, 2) + "\n");
   exec("git", ["add", "./package.json"]);

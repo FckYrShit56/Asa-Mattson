@@ -607,7 +607,19 @@ describe("scope", () => {
       path.scope.crawl();
       path.scope.crawl();
 
-      expect(path.scope.references._jsx).toBe(true);
+      expect(path.scope.hasReference("_jsx")).toBe(true);
+    });
+
+    it("should reset child scopes", function () {
+      const path = getPath("function f() { var a; a; a; }");
+      const fnScope = path.get("body.0").scope;
+
+      expect(fnScope.getBinding("a").references).toBe(2);
+
+      path.get("body.0.body.body.1").remove();
+      path.scope.crawl();
+
+      expect(fnScope.getBinding("a").references).toBe(1);
     });
 
     test("generateUid collision check after re-crawling", function () {
@@ -713,7 +725,7 @@ describe("scope", () => {
       it(`${name} and function in sub scope`, () => {
         const ast = [
           t.variableDeclaration(name, [
-            t.variableDeclarator(t.identifier("foo")),
+            t.variableDeclarator(t.identifier("foo"), t.nullLiteral()),
           ]),
           t.blockStatement([
             t.functionDeclaration(
@@ -772,7 +784,7 @@ describe("scope", () => {
           case "const":
           case "var":
             return t.variableDeclaration(kind, [
-              t.variableDeclarator(t.identifier("foo")),
+              t.variableDeclarator(t.identifier("foo"), t.nullLiteral()),
             ]);
           case "class":
             return t.classDeclaration(
@@ -1246,6 +1258,28 @@ describe("scope", () => {
 
       const bindingA = program.get("body.1.body").scope.getBinding("a");
       expect(bindingA.constantViolations).toHaveLength(1);
+    });
+  });
+
+  describe("hasBinding", () => {
+    it("upToScope", () => {
+      const program = getPath(`
+        function x() {
+          function y() {
+            var a = 1;
+          }
+        }
+      `);
+
+      const scope = program.get("body.0.body.body.0").scope;
+      expect(scope.hasBinding("a", { upToScope: program.scope })).toBe(true);
+      expect(scope.hasBinding("a", { upToScope: scope })).toBe(false);
+      expect(scope.hasBinding("a", { upToScope: scope.parent })).toBe(true);
+
+      expect(scope.hasBinding("Symbol", { upToScope: scope })).toBe(true);
+      expect(
+        scope.hasBinding("Symbol", { upToScope: scope, noGlobals: true }),
+      ).toBe(false);
     });
   });
 });

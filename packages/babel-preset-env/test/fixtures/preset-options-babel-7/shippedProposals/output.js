@@ -15,18 +15,17 @@ function agf() {
   return _agf.apply(this, arguments);
 }
 function _agf() {
-  _agf = babelHelpers.wrapAsyncGenerator(/*#__PURE__*/babelHelpers.regeneratorRuntime().mark(function _callee() {
-    return babelHelpers.regeneratorRuntime().wrap(function _callee$(_context) {
-      while (1) switch (_context.prev = _context.next) {
+  _agf = babelHelpers.wrapAsyncGenerator(/*#__PURE__*/babelHelpers.regenerator().m(function _callee() {
+    return babelHelpers.regenerator().w(function (_context) {
+      while (1) switch (_context.n) {
         case 0:
-          _context.next = 2;
+          _context.n = 1;
           return babelHelpers.awaitAsyncGenerator(1);
-        case 2:
-          _context.next = 4;
+        case 1:
+          _context.n = 2;
           return 2;
-        case 4:
-        case "end":
-          return _context.stop();
+        case 2:
+          return _context.a(2);
       }
     }, _callee);
   }));

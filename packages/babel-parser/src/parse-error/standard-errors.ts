@@ -38,7 +38,6 @@ export default {
     "'await using' is only allowed within async functions and at the top levels of modules.",
   AwaitNotInAsyncContext:
     "'await' is only allowed within async functions and at the top levels of modules.",
-  AwaitNotInAsyncFunction: "'await' is only allowed within async functions.",
   BadGetterArity: "A 'get' accessor must not have any formal parameters.",
   BadSetterArity: "A 'set' accessor must have exactly one formal parameter.",
   BadSetterRestParameter:
@@ -77,8 +76,6 @@ export default {
     `\`${exportName}\` has already been exported. Exported identifiers must be unique.`,
   DuplicateProto: "Redefinition of __proto__ property.",
   DuplicateRegExpFlags: "Duplicate regular expression flag.",
-  DynamicImportPhaseRequiresImportExpressions: ({ phase }: { phase: string }) =>
-    `'import.${phase}(...)' can only be parsed when using the 'createImportExpressions' option.`,
   ElementAfterRest: "Rest element must be last element.",
   EscapedCharNotAnIdentifier: "Invalid Unicode escape.",
   ExportBindingIsString: ({
@@ -282,7 +279,7 @@ export default {
   UnexpectedTokenUnaryExponentiation:
     "Illegal expression. Wrap left hand side or entire exponentiation in parentheses.",
   UnexpectedUsingDeclaration:
-    "Using declaration cannot appear in the top level when source type is `script`.",
+    "Using declaration cannot appear in the top level when source type is `script` or in the bare case statement.",
   UnsupportedBind: "Binding should be performed on object property.",
   UnsupportedDecoratorExport:
     "A decorated export must export a class declaration.",
@@ -316,6 +313,8 @@ export default {
   YieldBindingIdentifier:
     "Can not use 'yield' as identifier inside a generator.",
   YieldInParameter: "Yield expression is not allowed in formal parameters.",
+  YieldNotInGeneratorFunction:
+    "'yield' is only allowed within generator functions.",
   ZeroDigitNumericSeparator:
     "Numeric separator can not be used after leading 0.",
 } satisfies ParseErrorTemplates;

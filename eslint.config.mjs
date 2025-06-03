@@ -57,13 +57,15 @@ export default [
       "packages/babel-parser/test/expressions",
       "packages/babel-core/src/vendor",
       "packages/babel-parser/typings/**/*",
+      "packages/babel-plugin-transform-regenerator/test/regenerator-fixtures",
       "eslint/*/lib",
       "eslint/*/node_modules",
       "eslint/*/test/fixtures",
       "scripts/integration-tests/fixtures",
       "test/runtime-integration/*/output.js",
       "test/runtime-integration/*/output-absolute.js",
-      "Makefile.js",
+      "Makefile.mjs",
+      "packages/babel-types/src/constants/generated/index.ts",
       ...(process.env.IS_PUBLISH ? testFiles : []),
     ],
   },
@@ -77,6 +79,7 @@ export default [
         requireConfigFile: false,
         babelOptions: {
           babelrc: false,
+          browserslistConfigFile: false,
           configFile: false,
           // Todo: Remove the parserOpts here after the proposal gets stage 4.
           parserOpts: {
@@ -91,6 +94,7 @@ export default [
     },
     rules: {
       curly: ["error", "multi-line"],
+      "dot-notation": "error",
       eqeqeq: ["error", "smart"],
       "linebreak-style": ["error", "unix"],
       "no-case-declarations": "error",
@@ -119,6 +123,7 @@ export default [
       "unicorn/prefer-array-find": "error",
       "unicorn/prefer-array-index-of": "error",
       "unicorn/prefer-includes": "error",
+      "unicorn/prefer-node-protocol": "error",
       "unicorn/prefer-string-starts-ends-with": "error",
     },
   },
@@ -198,7 +203,6 @@ export default [
       "@typescript-eslint/consistent-generic-constructors": "off",
       "@typescript-eslint/consistent-indexed-object-style": "off",
       "@typescript-eslint/consistent-type-definitions": "off",
-      "@typescript-eslint/dot-notation": "off",
       "@typescript-eslint/no-base-to-string": "off",
       "@typescript-eslint/no-duplicate-type-constituents": "off",
       "@typescript-eslint/no-empty-function": "off",
@@ -278,12 +282,13 @@ export default [
             "itNoESM",
             "itNoWin32",
             "itESM",
+            "itNegate",
+            "itSatisfies",
             "nodeGte8",
+            "nodeGte10",
             "nodeGte14",
             "nodeGte12",
             "nodeGte20",
-            "nodeGte22_12",
-            "nodeLt22_12",
             "nodeLt23_6",
             "nodeGte23_6",
             "nodeGte12NoESM",
@@ -303,7 +308,7 @@ export default [
     rules: {
       "n/no-unsupported-features/node-builtins": [
         "error",
-        { version: "12.17.0", ignores: ["module"] },
+        { version: "20.19.0", ignores: ["module"] },
       ],
       "@babel/development-internal/require-default-import-fallback": "error",
       "import/no-unresolved": "error",
@@ -394,6 +399,18 @@ export default [
     files: ["packages/babel-parser/typings/babel-parser.d.ts"],
     linterOptions: {
       reportUnusedDisableDirectives: "off",
+    },
+  },
+  {
+    files: ["Makefile.source.mjs"],
+    rules: {
+      "dot-notation": "off",
+    },
+  },
+  {
+    files: ["packages/babel-helpers/src/**/*.ts"],
+    rules: {
+      "@typescript-eslint/dot-notation": ["error", { allowKeywords: false }],
     },
   },
 ];

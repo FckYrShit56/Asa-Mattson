@@ -1,6 +1,6 @@
 {
   "name": "@babel/plugin-transform-class-static-block",
-  "version": "7.26.0",
+  "version": "7.27.1",
   "description": "Transform class static blocks",
   "repository": {
     "type": "git",
@@ -53,7 +53,7 @@
     "BABEL_8_BREAKING": [
       {
         "engines": {
-          "node": "^18.20.0 || ^20.17.0 || >=22.8.0"
+          "node": "^20.19.0 || >=22.12.0"
         }
       },
       {}

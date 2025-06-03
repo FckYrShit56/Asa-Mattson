@@ -1,0 +1,15 @@
+{
+  "validateLogs": true,
+  "targets": {
+    "chrome": 100
+  },
+  "presets": [
+    [
+      "env",
+      {
+        "debug": true
+      }
+    ]
+  ],
+  "BABEL_8_BREAKING": false
+}
